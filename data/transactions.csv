@@ -1,3 +1,8 @@
 id,date,type,category,amount,memo,tags
 TX-F93FF68F,2026-09-14,expense,food,10000,dinner,meal
 TX-2626D50E,2026-09-14,expense,food,15000,dinner,meal
+TX-2544E375,2026-09-15,expense,food,12000,점심,meal
+TX-C5421DE5,2026-09-16,expense,transport,25000,택시,transport
+TX-7E3284ED,2026-09-17,income,salary,3000000,월급,salary
+TX-66A5EA71,2026-09-15,expense,food,12000,점심,meal
+TX-5362287F,2026-09-17,income,salary,3000000,월급,salary

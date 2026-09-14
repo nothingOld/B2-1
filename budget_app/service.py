@@ -1,16 +1,28 @@
 """가계부 프로그램에서 사용하는 비즈니스 로직을 제공한다."""
 
 import collections.abc
+import csv
 import datetime
 import heapq
+import pathlib
 import uuid
 
 from budget_app import models
 from budget_app import repository
 
 
+CSV_TRANSACTION_FIELDS = (
+    "date",
+    "type",
+    "category",
+    "amount",
+    "memo",
+    "tags",
+)
+
+
 class TransactionService:
-    """거래 추가, 조회, 검색, 수정, 삭제 기능을 제공한다."""
+    """거래 추가, 조회, 검색, 수정, 삭제 및 입출력 기능을 제공한다."""
 
     def __init__(
         self,
@@ -147,6 +159,152 @@ class TransactionService:
             key=lambda transaction: transaction.date,
             reverse=True,
         )
+
+    def import_transactions(
+        self,
+        source_path: str,
+    ) -> tuple[int, int]:
+        """CSV 파일의 거래 내역을 일괄 등록한다.
+
+        Args:
+            source_path: 가져올 CSV 파일 경로.
+
+        Returns:
+            정상 등록 건수와 건너뛴 건수.
+
+        Raises:
+            ValueError: 파일 또는 CSV 구조가 올바르지 않은 경우.
+        """
+        path = pathlib.Path(source_path)
+
+        if not path.is_file():
+            raise ValueError(
+                f"가져올 CSV 파일을 찾을 수 없습니다: {source_path}"
+            )
+
+        imported = 0
+        skipped = 0
+
+        try:
+            with path.open(
+                "r",
+                encoding="utf-8",
+                newline="",
+            ) as file:
+                reader = csv.DictReader(file)
+
+                self._validate_import_fields(reader.fieldnames)
+
+                for row in reader:
+                    try:
+                        self.add_transaction(
+                            date=(row.get("date") or "").strip(),
+                            transaction_type=(
+                                row.get("type") or ""
+                            ).strip(),
+                            category=(
+                                row.get("category") or ""
+                            ).strip(),
+                            amount=(row.get("amount") or "").strip(),
+                            memo=row.get("memo") or "",
+                            tags=row.get("tags") or "",
+                        )
+                        imported += 1
+                    except ValueError:
+                        skipped += 1
+
+        except UnicodeError as error:
+            raise ValueError(
+                "CSV 파일은 UTF-8 형식이어야 합니다."
+            ) from error
+        except csv.Error as error:
+            raise ValueError(
+                "CSV 파일 형식이 올바르지 않습니다."
+            ) from error
+        except OSError as error:
+            raise ValueError(
+                f"CSV 파일을 읽을 수 없습니다: {source_path}"
+            ) from error
+
+        return imported, skipped
+
+    def export_transactions(
+        self,
+        output_path: str,
+        month: str | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> int:
+        """조건에 맞는 거래를 CSV 파일로 내보낸다.
+
+        Args:
+            output_path: 생성할 CSV 파일 경로.
+            month: YYYY-MM 형식의 내보내기 대상 월.
+            from_date: 내보내기 시작 날짜.
+            to_date: 내보내기 종료 날짜.
+
+        Returns:
+            CSV 파일에 저장한 거래 건수.
+
+        Raises:
+            ValueError: 검색 조건이나 출력 경로가 올바르지 않은 경우.
+        """
+        self._validate_export_conditions(
+            month=month,
+            from_date=from_date,
+            to_date=to_date,
+        )
+
+        path = pathlib.Path(output_path)
+        count = 0
+
+        try:
+            if path.parent != pathlib.Path("."):
+                path.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+
+            with path.open(
+                "w",
+                encoding="utf-8",
+                newline="",
+            ) as file:
+                writer = csv.DictWriter(
+                    file,
+                    fieldnames=CSV_TRANSACTION_FIELDS,
+                )
+                writer.writeheader()
+
+                for transaction in (
+                    self._transaction_repository.iter_transactions()
+                ):
+                    if not self._matches_export_condition(
+                        transaction=transaction,
+                        month=month,
+                        from_date=from_date,
+                        to_date=to_date,
+                    ):
+                        continue
+
+                    writer.writerow(
+                        {
+                            "date": transaction.date,
+                            "type": transaction.type,
+                            "category": transaction.category,
+                            "amount": transaction.amount,
+                            "memo": transaction.memo,
+                            "tags": transaction.tags,
+                        }
+                    )
+                    count += 1
+
+        except OSError as error:
+            raise ValueError(
+                f"CSV 파일을 생성할 수 없습니다: {output_path}"
+            ) from error
+
+        return count
 
     def update_transaction(
         self,
@@ -336,6 +494,100 @@ class TransactionService:
             )
 
         return amount_value
+
+    def _validate_import_fields(
+        self,
+        fieldnames: list[str] | None,
+    ) -> None:
+        """가져오기 CSV의 필수 헤더를 검증한다."""
+        if fieldnames is None:
+            raise ValueError("CSV 헤더를 찾을 수 없습니다.")
+
+        missing_fields = [
+            field
+            for field in CSV_TRANSACTION_FIELDS
+            if field not in fieldnames
+        ]
+
+        if missing_fields:
+            raise ValueError(
+                "CSV 필수 컬럼이 없습니다: "
+                + ", ".join(missing_fields)
+            )
+
+    def _validate_export_conditions(
+        self,
+        month: str | None,
+        from_date: str | None,
+        to_date: str | None,
+    ) -> None:
+        """내보내기 검색 조건을 검증한다."""
+        if month is None and from_date is None and to_date is None:
+            raise ValueError(
+                "export는 --month 또는 --from/--to 조건이 필요합니다."
+            )
+
+        if month is not None and (
+            from_date is not None or to_date is not None
+        ):
+            raise ValueError(
+                "--month와 --from/--to는 함께 사용할 수 없습니다."
+            )
+
+        if month is not None:
+            self._validate_month(month)
+            return
+
+        if from_date is None or to_date is None:
+            raise ValueError(
+                "기간으로 내보낼 때는 --from과 --to를 "
+                "모두 입력해야 합니다."
+            )
+
+        self.validate_date(from_date)
+        self.validate_date(to_date)
+
+        if from_date > to_date:
+            raise ValueError(
+                "시작 날짜는 종료 날짜보다 늦을 수 없습니다."
+            )
+
+    def _matches_export_condition(
+        self,
+        transaction: models.Transaction,
+        month: str | None,
+        from_date: str | None,
+        to_date: str | None,
+    ) -> bool:
+        """거래가 내보내기 조건에 해당하는지 확인한다."""
+        if month is not None:
+            return transaction.date.startswith(f"{month}-")
+
+        if from_date is None or to_date is None:
+            return False
+
+        return from_date <= transaction.date <= to_date
+
+    def _validate_month(self, month: str) -> str:
+        """YYYY-MM 형식의 월을 검증한다."""
+        try:
+            parsed_month = datetime.datetime.strptime(
+                month,
+                "%Y-%m",
+            )
+        except ValueError as error:
+            raise ValueError(
+                "월 형식이 올바르지 않습니다. "
+                "YYYY-MM 형식으로 입력해주세요."
+            ) from error
+
+        if parsed_month.strftime("%Y-%m") != month:
+            raise ValueError(
+                "월 형식이 올바르지 않습니다. "
+                "YYYY-MM 형식으로 입력해주세요."
+            )
+
+        return month
 
     def _iter_matching_transactions(
         self,

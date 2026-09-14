@@ -1,0 +1,4 @@
+date,type,category,amount,memo,tags
+2026-09-15,expense,food,12000,점심,meal
+2026-13-99,expense,food,15000,잘못된 날짜,test
+2026-09-17,income,salary,3000000,월급,salary

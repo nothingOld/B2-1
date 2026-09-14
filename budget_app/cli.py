@@ -173,6 +173,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="예산을 조회할 월입니다. YYYY-MM 형식입니다.",
     )
 
+    import_parser = subparsers.add_parser(
+        "import",
+        help="CSV 파일의 거래 내역을 가져옵니다.",
+    )
+    import_parser.add_argument(
+        "--from",
+        dest="source_path",
+        required=True,
+        help="가져올 CSV 파일 경로입니다.",
+    )
+
+    export_parser = subparsers.add_parser(
+        "export",
+        help="거래 내역을 CSV 파일로 내보냅니다.",
+    )
+    export_parser.add_argument(
+        "--out",
+        required=True,
+        help="생성할 CSV 파일 경로입니다.",
+    )
+    export_parser.add_argument(
+        "--month",
+        help="내보낼 월입니다. YYYY-MM 형식입니다.",
+    )
+    export_parser.add_argument(
+        "--from",
+        dest="from_date",
+        help="내보내기 시작 날짜입니다. YYYY-MM-DD 형식입니다.",
+    )
+    export_parser.add_argument(
+        "--to",
+        dest="to_date",
+        help="내보내기 종료 날짜입니다. YYYY-MM-DD 형식입니다.",
+    )
+
     return parser
 
 
@@ -259,6 +294,18 @@ def main(
         if args.command == "budget":
             return _run_budget(
                 budget_service,
+                args,
+            )
+
+        if args.command == "import":
+            return _run_import(
+                transaction_service,
+                args.source_path,
+            )
+
+        if args.command == "export":
+            return _run_export(
+                transaction_service,
                 args,
             )
 
@@ -511,6 +558,38 @@ def _run_budget(
         return 0
 
     print("[안내] budget 하위 명령을 입력해주세요.")
+    return 0
+
+
+def _run_import(
+    transaction_service: service.TransactionService,
+    source_path: str,
+) -> int:
+    """CSV 파일에서 거래 내역을 가져온다."""
+    imported, skipped = transaction_service.import_transactions(
+        source_path
+    )
+
+    print(
+        f"[완료] imported={imported}, "
+        f"skipped={skipped}"
+    )
+    return 0
+
+
+def _run_export(
+    transaction_service: service.TransactionService,
+    args: argparse.Namespace,
+) -> int:
+    """조건에 맞는 거래 내역을 CSV 파일로 내보낸다."""
+    count = transaction_service.export_transactions(
+        output_path=args.out,
+        month=args.month,
+        from_date=args.from_date,
+        to_date=args.to_date,
+    )
+
+    print(f"[완료] {args.out} ({count} records)")
     return 0
 
 
