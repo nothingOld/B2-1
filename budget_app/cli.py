@@ -2,10 +2,50 @@
 
 import argparse
 import collections.abc
+import functools
 
 from budget_app import models
 from budget_app import repository
 from budget_app import service
+
+
+def handle_cli_errors(
+    function: collections.abc.Callable[..., int],
+) -> collections.abc.Callable[..., int]:
+    """CLI 실행 중 발생하는 공통 예외를 처리한다.
+
+    Args:
+        function: 예외 처리를 적용할 함수.
+
+    Returns:
+        공통 예외 처리가 적용된 함수.
+    """
+
+    @functools.wraps(function)
+    def wrapper(*args, **kwargs) -> int:
+        try:
+            return function(*args, **kwargs)
+
+        except ValueError as error:
+            print(f"[오류] {error}")
+            print("[힌트] 입력값과 파일 경로를 확인한 후 다시 실행해주세요.")
+            return 1
+
+        except OSError as error:
+            print(f"[오류] 파일 처리 중 문제가 발생했습니다: {error}")
+            print("[힌트] 파일 경로와 파일 접근 권한을 확인해주세요.")
+            return 1
+
+        except KeyError as error:
+            print(f"[오류] 데이터 파일에 필요한 항목이 없습니다: {error}")
+            print("[힌트] CSV 파일의 헤더와 데이터 구조를 확인해주세요.")
+            return 1
+
+        except (KeyboardInterrupt, EOFError):
+            print("\n[종료] 사용자 요청으로 프로그램을 종료합니다.")
+            return 130
+
+    return wrapper
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -17,6 +57,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="budget_app",
         description="파일 기반 콘솔 가계부 프로그램",
+    )
+
+    parser.add_argument(
+        "--data-dir",
+        default="./data",
+        help="데이터 파일을 저장할 폴더입니다. 기본값은 ./data입니다.",
     )
 
     subparsers = parser.add_subparsers(
@@ -211,6 +257,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+@handle_cli_errors
 def main(
     argv: collections.abc.Sequence[str] | None = None,
 ) -> int:
@@ -221,104 +268,100 @@ def main(
             명령줄 인자를 사용한다.
 
     Returns:
-        정상적으로 실행되면 0, 오류가 발생하면 1,
-        사용자가 강제 종료하면 130을 반환한다.
+        프로그램 종료 코드를 반환한다.
     """
-    try:
-        initializer = repository.DataInitializer()
-        initializer.initialize()
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
-        parser = build_parser()
-        args = parser.parse_args(argv)
+    initializer = repository.DataInitializer(args.data_dir)
+    initializer.initialize()
 
-        transaction_repository = repository.TransactionRepository()
-        category_repository = repository.CategoryRepository()
-        budget_repository = repository.BudgetRepository()
+    transaction_repository = repository.TransactionRepository(
+        args.data_dir
+    )
+    category_repository = repository.CategoryRepository(
+        args.data_dir
+    )
+    budget_repository = repository.BudgetRepository(
+        args.data_dir
+    )
 
-        transaction_service = service.TransactionService(
-            transaction_repository,
-            category_repository,
+    transaction_service = service.TransactionService(
+        transaction_repository,
+        category_repository,
+    )
+    category_service = service.CategoryService(
+        category_repository,
+        transaction_repository,
+    )
+    budget_service = service.BudgetService(
+        budget_repository,
+    )
+    summary_service = service.SummaryService(
+        transaction_repository,
+        budget_repository,
+    )
+
+    if args.command == "add":
+        return _run_add(transaction_service)
+
+    if args.command == "list":
+        return _run_list(
+            transaction_service,
+            args.limit,
         )
-        category_service = service.CategoryService(
-            category_repository,
-            transaction_repository,
-        )
-        budget_service = service.BudgetService(
-            budget_repository,
-        )
-        summary_service = service.SummaryService(
-            transaction_repository,
-            budget_repository,
+
+    if args.command == "search":
+        return _run_search(
+            transaction_service,
+            args,
         )
 
-        if args.command == "add":
-            return _run_add(transaction_service)
+    if args.command == "summary":
+        return _run_summary(
+            summary_service,
+            args.month,
+            args.top,
+        )
 
-        if args.command == "list":
-            return _run_list(
-                transaction_service,
-                args.limit,
-            )
+    if args.command == "update":
+        return _run_update(
+            transaction_service,
+            args,
+        )
 
-        if args.command == "search":
-            return _run_search(
-                transaction_service,
-                args,
-            )
+    if args.command == "delete":
+        return _run_delete(
+            transaction_service,
+            args.id,
+        )
 
-        if args.command == "summary":
-            return _run_summary(
-                summary_service,
-                args.month,
-                args.top,
-            )
+    if args.command == "category":
+        return _run_category(
+            category_service,
+            args,
+        )
 
-        if args.command == "update":
-            return _run_update(
-                transaction_service,
-                args,
-            )
+    if args.command == "budget":
+        return _run_budget(
+            budget_service,
+            args,
+        )
 
-        if args.command == "delete":
-            return _run_delete(
-                transaction_service,
-                args.id,
-            )
+    if args.command == "import":
+        return _run_import(
+            transaction_service,
+            args.source_path,
+        )
 
-        if args.command == "category":
-            return _run_category(
-                category_service,
-                args,
-            )
+    if args.command == "export":
+        return _run_export(
+            transaction_service,
+            args,
+        )
 
-        if args.command == "budget":
-            return _run_budget(
-                budget_service,
-                args,
-            )
-
-        if args.command == "import":
-            return _run_import(
-                transaction_service,
-                args.source_path,
-            )
-
-        if args.command == "export":
-            return _run_export(
-                transaction_service,
-                args,
-            )
-
-        parser.print_help()
-        return 0
-
-    except ValueError as error:
-        print(f"[오류] {error}")
-        return 1
-
-    except (KeyboardInterrupt, EOFError):
-        print("\n[종료] 사용자 요청으로 프로그램을 종료합니다.")
-        return 130
+    parser.print_help()
+    return 0
 
 
 def _run_add(
