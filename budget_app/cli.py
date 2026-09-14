@@ -39,6 +39,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="조회할 최대 거래 건수입니다. 기본값은 10입니다.",
     )
 
+    search_parser = subparsers.add_parser(
+        "search",
+        help="조건에 맞는 거래를 검색합니다.",
+    )
+    search_parser.add_argument(
+        "--from",
+        dest="from_date",
+        help="검색 시작 날짜입니다. YYYY-MM-DD 형식입니다.",
+    )
+    search_parser.add_argument(
+        "--to",
+        dest="to_date",
+        help="검색 종료 날짜입니다. YYYY-MM-DD 형식입니다.",
+    )
+    search_parser.add_argument(
+        "--category",
+        help="검색할 카테고리입니다.",
+    )
+    search_parser.add_argument(
+        "--type",
+        help="검색할 거래 유형입니다. income 또는 expense입니다.",
+    )
+    search_parser.add_argument(
+        "--q",
+        help="메모에서 검색할 문자열입니다.",
+    )
+    search_parser.add_argument(
+        "--tag",
+        help="검색할 태그입니다.",
+    )
+
     update_parser = subparsers.add_parser(
         "update",
         help="기존 거래를 수정합니다.",
@@ -103,6 +134,12 @@ def main(
             return _run_list(
                 transaction_service,
                 args.limit,
+            )
+
+        if args.command == "search":
+            return _run_search(
+                transaction_service,
+                args,
             )
 
         if args.command == "update":
@@ -194,6 +231,30 @@ def _run_list(
 
     if not transactions:
         print("[안내] 거래 내역이 없습니다.")
+        return 0
+
+    for transaction in transactions:
+        _print_transaction(transaction)
+
+    return 0
+
+
+def _run_search(
+    transaction_service: service.TransactionService,
+    args: argparse.Namespace,
+) -> int:
+    """입력된 조건에 맞는 거래를 검색하고 출력한다."""
+    transactions = transaction_service.search_transactions(
+        from_date=args.from_date,
+        to_date=args.to_date,
+        category=args.category,
+        transaction_type=args.type,
+        query=args.q,
+        tag=args.tag,
+    )
+
+    if not transactions:
+        print("[안내] 검색 조건에 맞는 거래가 없습니다.")
         return 0
 
     for transaction in transactions:

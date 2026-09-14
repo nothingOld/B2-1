@@ -1,5 +1,6 @@
 """가계부 프로그램에서 사용하는 비즈니스 로직을 제공한다."""
 
+import collections.abc
 import datetime
 import heapq
 import uuid
@@ -9,7 +10,7 @@ from budget_app import repository
 
 
 class TransactionService:
-    """거래 추가, 조회, 수정, 삭제 기능을 제공한다."""
+    """거래 추가, 조회, 검색, 수정, 삭제 기능을 제공한다."""
 
     def __init__(
         self,
@@ -90,6 +91,61 @@ class TransactionService:
             limit,
             self._transaction_repository.iter_transactions(),
             key=lambda transaction: transaction.date,
+        )
+
+    def search_transactions(
+        self,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        category: str | None = None,
+        transaction_type: str | None = None,
+        query: str | None = None,
+        tag: str | None = None,
+    ) -> list[models.Transaction]:
+        """조건에 맞는 거래 내역을 검색한다.
+
+        Args:
+            from_date: 검색 시작 날짜.
+            to_date: 검색 종료 날짜.
+            category: 검색할 카테고리.
+            transaction_type: 검색할 거래 유형.
+            query: 메모에서 검색할 문자열.
+            tag: 검색할 태그.
+
+        Returns:
+            검색 조건에 맞는 최신순 거래 목록.
+
+        Raises:
+            ValueError: 날짜나 거래 유형 조건이 올바르지 않은 경우.
+        """
+        if from_date is not None:
+            self.validate_date(from_date)
+
+        if to_date is not None:
+            self.validate_date(to_date)
+
+        if from_date is not None and to_date is not None:
+            if from_date > to_date:
+                raise ValueError(
+                    "검색 시작 날짜는 종료 날짜보다 늦을 수 없습니다."
+                )
+
+        if transaction_type is not None:
+            self.validate_type(transaction_type)
+
+        transactions = self._iter_matching_transactions(
+            from_date=from_date,
+            to_date=to_date,
+            category=category,
+            transaction_type=transaction_type,
+            query=query,
+            tag=tag,
+        )
+
+        return sorted(
+            transactions,
+            key=lambda transaction: transaction.date,
+            reverse=True,
         )
 
     def update_transaction(
@@ -280,6 +336,51 @@ class TransactionService:
             )
 
         return amount_value
+
+    def _iter_matching_transactions(
+        self,
+        from_date: str | None,
+        to_date: str | None,
+        category: str | None,
+        transaction_type: str | None,
+        query: str | None,
+        tag: str | None,
+    ) -> collections.abc.Iterator[models.Transaction]:
+        """검색 조건에 맞는 거래를 한 건씩 반환한다."""
+        for transaction in (
+            self._transaction_repository.iter_transactions()
+        ):
+            if from_date is not None:
+                if transaction.date < from_date:
+                    continue
+
+            if to_date is not None:
+                if transaction.date > to_date:
+                    continue
+
+            if category is not None:
+                if transaction.category != category:
+                    continue
+
+            if transaction_type is not None:
+                if transaction.type != transaction_type:
+                    continue
+
+            if query is not None:
+                if query.casefold() not in transaction.memo.casefold():
+                    continue
+
+            if tag is not None:
+                transaction_tags = [
+                    current_tag.strip()
+                    for current_tag in transaction.tags.split(",")
+                    if current_tag.strip()
+                ]
+
+                if tag not in transaction_tags:
+                    continue
+
+            yield transaction
 
     def _create_transaction_id(self) -> str:
         """고유한 거래 ID를 생성한다."""
