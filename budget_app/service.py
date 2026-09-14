@@ -1,1 +1,1 @@
-"""Business logic for the budget application."""
+"""가계부 프로그램에서 사용하는 비즈니스 로직을 제공한다."""

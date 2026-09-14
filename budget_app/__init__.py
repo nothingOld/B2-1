@@ -1,3 +1,1 @@
-"""Budget ledger console application."""
-
-__version__ = "0.1.0"
+"""파일 기반 개인 가계부 프로그램 패키지."""
