@@ -385,3 +385,166 @@ class TransactionService:
     def _create_transaction_id(self) -> str:
         """고유한 거래 ID를 생성한다."""
         return f"TX-{uuid.uuid4().hex[:8].upper()}"
+
+
+class CategoryService:
+    """카테고리 추가, 조회, 삭제 기능을 제공한다."""
+
+    def __init__(
+        self,
+        category_repository: repository.CategoryRepository,
+        transaction_repository: repository.TransactionRepository,
+    ) -> None:
+        """카테고리 서비스에 필요한 저장소를 초기화한다.
+
+        Args:
+            category_repository: 카테고리 데이터를 처리할 저장소.
+            transaction_repository: 거래 데이터를 처리할 저장소.
+        """
+        self._category_repository = category_repository
+        self._transaction_repository = transaction_repository
+
+    def add_category(self, category: str) -> str:
+        """새로운 카테고리를 추가한다.
+
+        Args:
+            category: 추가할 카테고리 이름.
+
+        Returns:
+            추가된 카테고리 이름.
+
+        Raises:
+            ValueError: 이름이 비어 있거나 이미 존재하는 경우.
+        """
+        category = category.strip()
+
+        if not category:
+            raise ValueError("카테고리 이름을 입력해야 합니다.")
+
+        if self._category_repository.exists(category):
+            raise ValueError(
+                f"이미 등록된 카테고리입니다: {category}"
+            )
+
+        self._category_repository.add(category)
+        return category
+
+    def list_categories(self) -> list[str]:
+        """등록된 카테고리를 조회한다.
+
+        Returns:
+            등록된 카테고리 이름 목록.
+        """
+        return self._category_repository.list_all()
+
+    def remove_category(self, category: str) -> None:
+        """등록된 카테고리를 삭제한다.
+
+        Args:
+            category: 삭제할 카테고리 이름.
+
+        Raises:
+            ValueError: 카테고리가 없거나 거래에서 사용 중인 경우.
+        """
+        if not self._category_repository.exists(category):
+            raise ValueError(
+                f"등록되지 않은 카테고리입니다: {category}"
+            )
+
+        if self._transaction_repository.uses_category(category):
+            raise ValueError(
+                f"사용 중인 카테고리는 삭제할 수 없습니다: {category}"
+            )
+
+        self._category_repository.remove(category)
+
+
+class BudgetService:
+    """월별 예산 설정 및 조회 기능을 제공한다."""
+
+    def __init__(
+        self,
+        budget_repository: repository.BudgetRepository,
+    ) -> None:
+        """예산 서비스에 필요한 저장소를 초기화한다.
+
+        Args:
+            budget_repository: 예산 데이터를 처리할 저장소.
+        """
+        self._budget_repository = budget_repository
+
+    def set_budget(self, month: str, amount: str) -> int:
+        """월별 예산을 설정한다.
+
+        Args:
+            month: YYYY-MM 형식의 월.
+            amount: 설정할 예산 금액.
+
+        Returns:
+            저장된 예산 금액.
+
+        Raises:
+            ValueError: 월 또는 금액이 올바르지 않은 경우.
+        """
+        validated_month = self._validate_month(month)
+        validated_amount = self._validate_budget_amount(amount)
+
+        self._budget_repository.set_budget(
+            validated_month,
+            validated_amount,
+        )
+
+        return validated_amount
+
+    def get_budget(self, month: str) -> int | None:
+        """월별 예산을 조회한다.
+
+        Args:
+            month: 조회할 YYYY-MM 형식의 월.
+
+        Returns:
+            설정된 예산 금액. 설정되지 않았으면 None.
+
+        Raises:
+            ValueError: 월 형식이 올바르지 않은 경우.
+        """
+        validated_month = self._validate_month(month)
+
+        return self._budget_repository.get_budget(validated_month)
+
+    def _validate_month(self, month: str) -> str:
+        """월 입력 형식을 검증한다."""
+        try:
+            parsed_month = datetime.datetime.strptime(
+                month,
+                "%Y-%m",
+            )
+        except ValueError as error:
+            raise ValueError(
+                "월 형식이 올바르지 않습니다. "
+                "YYYY-MM 형식으로 입력해주세요."
+            ) from error
+
+        if parsed_month.strftime("%Y-%m") != month:
+            raise ValueError(
+                "월 형식이 올바르지 않습니다. "
+                "YYYY-MM 형식으로 입력해주세요."
+            )
+
+        return month
+
+    def _validate_budget_amount(self, amount: str) -> int:
+        """예산 금액을 검증하고 정수로 변환한다."""
+        try:
+            amount_value = int(amount)
+        except ValueError as error:
+            raise ValueError(
+                "예산 금액은 정수로 입력해야 합니다."
+            ) from error
+
+        if amount_value <= 0:
+            raise ValueError(
+                "예산 금액은 0보다 큰 값이어야 합니다."
+            )
+
+        return amount_value

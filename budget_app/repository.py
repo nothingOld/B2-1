@@ -95,7 +95,7 @@ class DataInitializer:
 
 
 class CategoryRepository:
-    """카테고리 데이터 조회 기능을 제공한다."""
+    """카테고리 데이터 저장 및 조회 기능을 제공한다."""
 
     def __init__(self, data_dir: str = "./data") -> None:
         """카테고리 저장 파일 경로를 초기화한다.
@@ -125,6 +125,81 @@ class CategoryRepository:
                 if row["name"] == category:
                     return True
 
+        return False
+
+    def list_all(self) -> list[str]:
+        """등록된 모든 카테고리를 조회한다.
+
+        Returns:
+            등록된 카테고리 이름 목록.
+        """
+        categories = []
+
+        with self._categories_path.open(
+            "r",
+            encoding="utf-8",
+            newline="",
+        ) as file:
+            reader = csv.DictReader(file)
+
+            for row in reader:
+                categories.append(row["name"])
+
+        return categories
+
+    def add(self, category: str) -> None:
+        """새로운 카테고리를 추가한다.
+
+        Args:
+            category: 추가할 카테고리 이름.
+        """
+        with self._categories_path.open(
+            "a",
+            encoding="utf-8",
+            newline="",
+        ) as file:
+            writer = csv.writer(file)
+            writer.writerow([category])
+
+    def remove(self, category: str) -> bool:
+        """카테고리를 삭제한다.
+
+        Args:
+            category: 삭제할 카테고리 이름.
+
+        Returns:
+            삭제에 성공하면 True, 카테고리가 없으면 False.
+        """
+        temporary_path = self._categories_path.with_suffix(".tmp")
+        found = False
+
+        with self._categories_path.open(
+            "r",
+            encoding="utf-8",
+            newline="",
+        ) as source_file:
+            reader = csv.DictReader(source_file)
+
+            with temporary_path.open(
+                "w",
+                encoding="utf-8",
+                newline="",
+            ) as temporary_file:
+                writer = csv.writer(temporary_file)
+                writer.writerow(["name"])
+
+                for row in reader:
+                    if row["name"] == category:
+                        found = True
+                        continue
+
+                    writer.writerow([row["name"]])
+
+        if found:
+            temporary_path.replace(self._categories_path)
+            return True
+
+        temporary_path.unlink(missing_ok=True)
         return False
 
 
@@ -191,6 +266,21 @@ class TransactionRepository:
                 return transaction
 
         return None
+
+    def uses_category(self, category: str) -> bool:
+        """특정 카테고리를 사용하는 거래가 있는지 확인한다.
+
+        Args:
+            category: 확인할 카테고리 이름.
+
+        Returns:
+            사용 중이면 True, 사용 중이 아니면 False.
+        """
+        for transaction in self.iter_transactions():
+            if transaction.category == category:
+                return True
+
+        return False
 
     def update(self, transaction: models.Transaction) -> bool:
         """ID가 같은 거래를 수정한다.
@@ -311,3 +401,79 @@ class TransactionRepository:
             "memo": transaction.memo,
             "tags": transaction.tags,
         }
+
+
+class BudgetRepository:
+    """월별 예산 데이터를 저장하고 조회한다."""
+
+    def __init__(self, data_dir: str = "./data") -> None:
+        """예산 저장 파일 경로를 초기화한다.
+
+        Args:
+            data_dir: 프로그램의 데이터 파일을 저장할 디렉터리 경로.
+        """
+        self._budgets_path = pathlib.Path(data_dir) / "budgets.csv"
+
+    def set_budget(self, month: str, amount: int) -> None:
+        """월별 예산을 저장하거나 기존 값을 수정한다.
+
+        Args:
+            month: YYYY-MM 형식의 월.
+            amount: 저장할 예산 금액.
+        """
+        temporary_path = self._budgets_path.with_suffix(".tmp")
+        found = False
+
+        with self._budgets_path.open(
+            "r",
+            encoding="utf-8",
+            newline="",
+        ) as source_file:
+            reader = csv.DictReader(source_file)
+
+            with temporary_path.open(
+                "w",
+                encoding="utf-8",
+                newline="",
+            ) as temporary_file:
+                writer = csv.writer(temporary_file)
+                writer.writerow(["month", "amount"])
+
+                for row in reader:
+                    if row["month"] == month:
+                        writer.writerow([month, amount])
+                        found = True
+                    else:
+                        writer.writerow(
+                            [
+                                row["month"],
+                                row["amount"],
+                            ]
+                        )
+
+                if not found:
+                    writer.writerow([month, amount])
+
+        temporary_path.replace(self._budgets_path)
+
+    def get_budget(self, month: str) -> int | None:
+        """해당 월에 설정된 예산을 조회한다.
+
+        Args:
+            month: 조회할 YYYY-MM 형식의 월.
+
+        Returns:
+            예산이 있으면 금액, 없으면 None.
+        """
+        with self._budgets_path.open(
+            "r",
+            encoding="utf-8",
+            newline="",
+        ) as file:
+            reader = csv.DictReader(file)
+
+            for row in reader:
+                if row["month"] == month:
+                    return int(row["amount"])
+
+        return None

@@ -96,6 +96,67 @@ def build_parser() -> argparse.ArgumentParser:
         help="삭제할 거래 ID입니다.",
     )
 
+    category_parser = subparsers.add_parser(
+        "category",
+        help="카테고리를 관리합니다.",
+    )
+    category_subparsers = category_parser.add_subparsers(
+        dest="category_command",
+    )
+
+    category_subparsers.add_parser(
+        "add",
+        help="새로운 카테고리를 추가합니다.",
+    )
+
+    category_subparsers.add_parser(
+        "list",
+        help="카테고리 목록을 조회합니다.",
+    )
+
+    category_remove_parser = category_subparsers.add_parser(
+        "remove",
+        help="카테고리를 삭제합니다.",
+    )
+    category_remove_parser.add_argument(
+        "--name",
+        required=True,
+        help="삭제할 카테고리 이름입니다.",
+    )
+
+    budget_parser = subparsers.add_parser(
+        "budget",
+        help="월별 예산을 관리합니다.",
+    )
+    budget_subparsers = budget_parser.add_subparsers(
+        dest="budget_command",
+    )
+
+    budget_set_parser = budget_subparsers.add_parser(
+        "set",
+        help="월별 예산을 설정합니다.",
+    )
+    budget_set_parser.add_argument(
+        "--month",
+        required=True,
+        help="예산을 설정할 월입니다. YYYY-MM 형식입니다.",
+    )
+    budget_set_parser.add_argument(
+        "--amount",
+        required=True,
+        help="설정할 예산 금액입니다.",
+    )
+
+    budget_get_parser = budget_subparsers.add_parser(
+        "get",
+        help="월별 예산을 조회합니다.",
+    )
+    budget_get_parser.add_argument(
+        "--month",
+        required=True,
+        help="예산을 조회할 월입니다. YYYY-MM 형식입니다.",
+    )
+
     return parser
 
 
@@ -121,10 +182,18 @@ def main(
 
         transaction_repository = repository.TransactionRepository()
         category_repository = repository.CategoryRepository()
+        budget_repository = repository.BudgetRepository()
 
         transaction_service = service.TransactionService(
             transaction_repository,
             category_repository,
+        )
+        category_service = service.CategoryService(
+            category_repository,
+            transaction_repository,
+        )
+        budget_service = service.BudgetService(
+            budget_repository,
         )
 
         if args.command == "add":
@@ -152,6 +221,18 @@ def main(
             return _run_delete(
                 transaction_service,
                 args.id,
+            )
+
+        if args.command == "category":
+            return _run_category(
+                category_service,
+                args,
+            )
+
+        if args.command == "budget":
+            return _run_budget(
+                budget_service,
+                args,
             )
 
         parser.print_help()
@@ -290,6 +371,67 @@ def _run_delete(
     transaction_service.delete_transaction(transaction_id)
 
     print(f"[삭제 완료] id={transaction_id}")
+    return 0
+
+
+def _run_category(
+    category_service: service.CategoryService,
+    args: argparse.Namespace,
+) -> int:
+    """카테고리 하위 명령을 실행한다."""
+    if args.category_command == "add":
+        category = input("카테고리명: ")
+        added_category = category_service.add_category(category)
+        print(f"[저장 완료] category={added_category}")
+        return 0
+
+    if args.category_command == "list":
+        categories = category_service.list_categories()
+
+        for category in categories:
+            print(f"- {category}")
+
+        return 0
+
+    if args.category_command == "remove":
+        category_service.remove_category(args.name)
+        print(f"[삭제 완료] category={args.name}")
+        return 0
+
+    print("[안내] category 하위 명령을 입력해주세요.")
+    return 0
+
+
+def _run_budget(
+    budget_service: service.BudgetService,
+    args: argparse.Namespace,
+) -> int:
+    """예산 하위 명령을 실행한다."""
+    if args.budget_command == "set":
+        amount = budget_service.set_budget(
+            args.month,
+            args.amount,
+        )
+
+        print(
+            f"[저장 완료] {args.month} 예산 "
+            f"{amount}원"
+        )
+        return 0
+
+    if args.budget_command == "get":
+        amount = budget_service.get_budget(args.month)
+
+        if amount is None:
+            print(
+                f"[안내] {args.month}에 설정된 예산이 없습니다."
+            )
+            return 0
+
+        print(f"{args.month} 예산: {amount}원")
+        return 0
+
+    print("[안내] budget 하위 명령을 입력해주세요.")
     return 0
 
 
