@@ -70,6 +70,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="검색할 태그입니다.",
     )
 
+    summary_parser = subparsers.add_parser(
+        "summary",
+        help="월별 거래 내역을 요약합니다.",
+    )
+    summary_parser.add_argument(
+        "--month",
+        required=True,
+        help="요약할 월입니다. YYYY-MM 형식입니다.",
+    )
+    summary_parser.add_argument(
+        "--top",
+        type=int,
+        default=3,
+        help="출력할 카테고리별 지출 순위 개수입니다. 기본값은 3입니다.",
+    )
+
     update_parser = subparsers.add_parser(
         "update",
         help="기존 거래를 수정합니다.",
@@ -195,6 +211,10 @@ def main(
         budget_service = service.BudgetService(
             budget_repository,
         )
+        summary_service = service.SummaryService(
+            transaction_repository,
+            budget_repository,
+        )
 
         if args.command == "add":
             return _run_add(transaction_service)
@@ -209,6 +229,13 @@ def main(
             return _run_search(
                 transaction_service,
                 args,
+            )
+
+        if args.command == "summary":
+            return _run_summary(
+                summary_service,
+                args.month,
+                args.top,
             )
 
         if args.command == "update":
@@ -340,6 +367,58 @@ def _run_search(
 
     for transaction in transactions:
         _print_transaction(transaction)
+
+    return 0
+
+
+def _run_summary(
+    summary_service: service.SummaryService,
+    month: str,
+    top: int,
+) -> int:
+    """월별 거래 및 예산 요약을 출력한다."""
+    summary = summary_service.get_monthly_summary(
+        month,
+        top,
+    )
+
+    if summary.transaction_count == 0:
+        print(f"[안내] {summary.month} 데이터 없음")
+
+        if summary.budget is not None:
+            print(
+                f"예산: {summary.budget}원 "
+                f"(사용률 {summary.usage_rate:.1f}%)"
+            )
+
+        return 0
+
+    print(f"총 수입: {summary.income_total}원")
+    print(f"총 지출: {summary.expense_total}원")
+    print(f"잔액: {summary.balance}원")
+
+    if summary.budget is not None:
+        print(
+            f"예산: {summary.budget}원 "
+            f"(사용률 {summary.usage_rate:.1f}%)"
+        )
+
+        if summary.over_budget:
+            print("[경고] 예산을 초과했습니다.")
+
+    print()
+    print(f"지출 TOP {top}")
+
+    if not summary.category_expenses:
+        print("[안내] 지출 내역이 없습니다.")
+        return 0
+
+    for rank, category_expense in enumerate(
+        summary.category_expenses,
+        start=1,
+    ):
+        category, amount = category_expense
+        print(f"{rank}) {category} {amount}원")
 
     return 0
 

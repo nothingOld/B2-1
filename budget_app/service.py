@@ -486,7 +486,7 @@ class BudgetService:
         Raises:
             ValueError: 월 또는 금액이 올바르지 않은 경우.
         """
-        validated_month = self._validate_month(month)
+        validated_month = self.validate_month(month)
         validated_amount = self._validate_budget_amount(amount)
 
         self._budget_repository.set_budget(
@@ -508,12 +508,22 @@ class BudgetService:
         Raises:
             ValueError: 월 형식이 올바르지 않은 경우.
         """
-        validated_month = self._validate_month(month)
+        validated_month = self.validate_month(month)
 
         return self._budget_repository.get_budget(validated_month)
 
-    def _validate_month(self, month: str) -> str:
-        """월 입력 형식을 검증한다."""
+    def validate_month(self, month: str) -> str:
+        """월 입력 형식을 검증한다.
+
+        Args:
+            month: 검증할 YYYY-MM 형식의 월.
+
+        Returns:
+            검증이 완료된 월.
+
+        Raises:
+            ValueError: 월 형식이 올바르지 않은 경우.
+        """
         try:
             parsed_month = datetime.datetime.strptime(
                 month,
@@ -548,3 +558,112 @@ class BudgetService:
             )
 
         return amount_value
+
+
+class SummaryService:
+    """월별 거래 및 예산 요약 기능을 제공한다."""
+
+    def __init__(
+        self,
+        transaction_repository: repository.TransactionRepository,
+        budget_repository: repository.BudgetRepository,
+    ) -> None:
+        """월별 요약에 필요한 저장소를 초기화한다.
+
+        Args:
+            transaction_repository: 거래 데이터를 처리할 저장소.
+            budget_repository: 예산 데이터를 처리할 저장소.
+        """
+        self._transaction_repository = transaction_repository
+        self._budget_repository = budget_repository
+
+    def get_monthly_summary(
+        self,
+        month: str,
+        top: int,
+    ) -> models.MonthlySummary:
+        """지정한 월의 거래 및 예산 정보를 요약한다.
+
+        Args:
+            month: YYYY-MM 형식의 요약 대상 월.
+            top: 출력할 카테고리별 지출 순위 개수.
+
+        Returns:
+            계산된 월별 요약 정보.
+
+        Raises:
+            ValueError: 월 형식 또는 top 값이 올바르지 않은 경우.
+        """
+        self._validate_month(month)
+
+        if top < 1:
+            raise ValueError("top 값은 1 이상이어야 합니다.")
+
+        income_total = 0
+        expense_total = 0
+        transaction_count = 0
+        category_expenses: dict[str, int] = {}
+
+        for transaction in (
+            self._transaction_repository.iter_transactions()
+        ):
+            if not transaction.date.startswith(f"{month}-"):
+                continue
+
+            transaction_count += 1
+
+            if transaction.type == "income":
+                income_total += transaction.amount
+                continue
+
+            expense_total += transaction.amount
+            category_expenses[transaction.category] = (
+                category_expenses.get(transaction.category, 0)
+                + transaction.amount
+            )
+
+        sorted_category_expenses = sorted(
+            category_expenses.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        )[:top]
+
+        budget = self._budget_repository.get_budget(month)
+
+        usage_rate = None
+        over_budget = False
+
+        if budget is not None:
+            usage_rate = expense_total / budget * 100
+            over_budget = expense_total > budget
+
+        return models.MonthlySummary(
+            month=month,
+            transaction_count=transaction_count,
+            income_total=income_total,
+            expense_total=expense_total,
+            balance=income_total - expense_total,
+            category_expenses=sorted_category_expenses,
+            budget=budget,
+            usage_rate=usage_rate,
+            over_budget=over_budget,
+        )
+
+    def _validate_month(self, month: str) -> None:
+        """월 입력 형식을 검증한다."""
+        try:
+            parsed_month = datetime.datetime.strptime(
+                month,
+                "%Y-%m",
+            )
+        except ValueError as error:
+            raise ValueError(
+                "월 형식이 올바르지 않습니다. "
+                "YYYY-MM 형식으로 입력해주세요."
+            ) from error
+
+        if parsed_month.strftime("%Y-%m") != month:
+            raise ValueError(
+                "월 형식이 올바르지 않습니다. "
+                "YYYY-MM 형식으로 입력해주세요."
+            )
